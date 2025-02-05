@@ -1,6 +1,6 @@
 {
     "rules": {
-        // requires jsonc support
+        // requires jsonc supports
         "no-console": "off",
         "no-bitwise": [
             "error",
