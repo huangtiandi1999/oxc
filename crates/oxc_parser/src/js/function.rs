@@ -23,8 +23,10 @@ impl<'a> ParserImpl<'a> {
     pub(crate) fn at_function_with_async(&mut self) -> bool {
         self.at(Kind::Function)
             || self.at(Kind::Async)
-                && self.peek_at(Kind::Function)
-                && !self.peek_token().is_on_new_line()
+                && self.lookahead(|p| {
+                    p.bump_any();
+                    p.at(Kind::Function) && !p.token.is_on_new_line()
+                })
     }
 
     pub(crate) fn parse_function_body(&mut self) -> Box<'a, FunctionBody<'a>> {
@@ -96,7 +98,11 @@ impl<'a> ParserImpl<'a> {
     fn parse_rest_parameter(&mut self) -> BindingRestElement<'a> {
         let element = self.parse_rest_element();
         if self.at(Kind::Comma) {
-            if matches!(self.peek_kind(), Kind::RCurly | Kind::RBrack) {
+            let checkpoint = self.checkpoint();
+            self.bump_any();
+            let peek_kind = self.cur_kind();
+            self.rewind(checkpoint);
+            if matches!(peek_kind, Kind::RCurly | Kind::RBrack) {
                 let span = self.cur_token().span();
                 self.bump_any();
                 self.error(diagnostics::binding_rest_element_trailing_comma(span));
@@ -328,31 +334,32 @@ impl<'a> ParserImpl<'a> {
     // id: None - for AnonymousDefaultExportedFunctionDeclaration
     pub(crate) fn parse_function_id(
         &mut self,
-        kind: FunctionKind,
+        func_kind: FunctionKind,
         r#async: bool,
         generator: bool,
     ) -> Option<BindingIdentifier<'a>> {
-        let ctx = self.ctx;
-        if kind.is_expression() {
-            self.ctx = self.ctx.and_await(r#async).and_yield(generator);
-        }
-        let id = self.cur_kind().is_binding_identifier().then(|| {
-            let (span, name) = self.parse_identifier_kind(Kind::Ident);
-            self.check_identifier(span, &name);
-            self.ast.binding_identifier(span, name)
-        });
-        self.ctx = ctx;
-
-        if kind.is_id_required() && id.is_none() {
-            match self.cur_kind() {
-                Kind::LParen => {
-                    self.error(diagnostics::expect_function_name(self.cur_token().span()));
-                }
-                kind if kind.is_reserved_keyword() => self.expect_without_advance(Kind::Ident),
-                _ => {}
+        let kind = self.cur_kind();
+        if kind.is_binding_identifier() {
+            let mut ctx = self.ctx;
+            if func_kind.is_expression() {
+                ctx = ctx.and_await(r#async).and_yield(generator);
             }
-        }
+            self.check_identifier(kind, ctx);
 
-        id
+            let (span, name) = self.parse_identifier_kind(Kind::Ident);
+            Some(self.ast.binding_identifier(span, name))
+        } else {
+            if func_kind.is_id_required() {
+                match self.cur_kind() {
+                    Kind::LParen => {
+                        self.error(diagnostics::expect_function_name(self.cur_token().span()));
+                    }
+                    kind if kind.is_reserved_keyword() => self.expect_without_advance(Kind::Ident),
+                    _ => {}
+                }
+            }
+
+            None
+        }
     }
 }
