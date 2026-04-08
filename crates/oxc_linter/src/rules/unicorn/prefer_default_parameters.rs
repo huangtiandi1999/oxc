@@ -220,7 +220,7 @@ fn check_expression<'a>(
         let mut fix = fixer.new_fix_with_capacity(2);
         fix.push(fixer.replace(replace_span, new_param_text));
         fix.push(fixer.delete_range(delete_span));
-        fix.with_message("Replace reassignment with default parameter")
+        fix.with_message("Prefer default parameters over reassignment.")
     });
 }
 
